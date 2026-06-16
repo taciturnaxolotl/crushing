@@ -1,37 +1,75 @@
 import { state, escapeHTML, renderPart } from './state';
 import { handleDisconnect } from './connect';
 
+declare const lucide: { createIcons: () => void } | undefined;
+function initIcons() { try { lucide?.createIcons(); } catch {} }
+
 const app = () => document.querySelector('#app')!;
 
 export function renderChat(): void {
   const session = state.sessions.find((s) => s.id === state.activeSessionID);
-  const title = session?.title || 'Chat';
 
   app().innerHTML = `
-    <div class="chat-header">
-      <div class="title">${escapeHTML(title)}</div>
-      <div style="display:flex;gap:0.5rem;">
-        <button id="new-session-btn">+ New</button>
-        <button id="disconnect-btn">Disconnect</button>
-      </div>
+    <div class="chat-layout">
+      <main class="chat-main">
+        <div class="messages" id="messages"></div>
+        <div id="permission-area"></div>
+        <div class="input-bar" id="input-bar"></div>
+      </main>
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+          <img src="/icon-192.png" alt="" class="logo-img-sm">
+          <span class="logo-meta"><span class="charm">Charm™</span> crush</span>
+        </div>
+        ${session ? `
+        <div class="sidebar-section">
+          <div class="sidebar-title">${escapeHTML(session.title || 'Untitled')}</div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-label">Model</div>
+          <div class="sidebar-value" id="sidebar-model">—</div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-label">Tokens</div>
+          <div class="sidebar-value">${(session.prompt_tokens + session.completion_tokens).toLocaleString()}</div>
+        </div>
+        ${session.cost > 0 ? `
+        <div class="sidebar-section">
+          <div class="sidebar-label">Cost</div>
+          <div class="sidebar-value">$${session.cost.toFixed(4)}</div>
+        </div>` : ''}
+        <div class="sidebar-section">
+          <div class="sidebar-label">Messages</div>
+          <div class="sidebar-value">${session.message_count}</div>
+        </div>
+        ` : ''}
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-actions">
+          <button id="new-session-btn">+ New Session</button>
+          <button id="disconnect-btn">Disconnect</button>
+        </div>
+      </aside>
     </div>
-    <div class="messages" id="messages"></div>
-    <div id="permission-area"></div>
-    <div class="input-bar" id="input-bar"></div>
   `;
 
   document.getElementById('new-session-btn')!.onclick = handleNewSession;
   document.getElementById('disconnect-btn')!.onclick = () => handleDisconnect();
 
+  // Populate model info from first message if available
+  if (state.messages.length > 0) {
+    const m = state.messages.find(msg => msg.model);
+    if (m) {
+      const el = document.getElementById('sidebar-model');
+      if (el) el.textContent = m.model;
+    }
+  }
+
   renderMessages();
   renderPermission();
   renderInputBar();
   scrollToBottom();
+  initIcons();
 }
-
-declare const lucide: { createIcons: () => void } | undefined;
-
-function initIcons() { try { lucide?.createIcons(); } catch {} }
 
 export function renderMessages(): void {
   const container = document.getElementById('messages');
@@ -75,7 +113,7 @@ export function renderInputBar(): void {
   if (state.agentBusy) {
     bar.innerHTML = `
       <textarea id="msg-input" rows="1" placeholder="Agent is working..." disabled></textarea>
-      <button class="stop-btn" id="stop-btn"><i data-lucide="square"></i></button>
+      <button class="stop-btn" id="stop-btn"><i data-lucide="circle-stop"></i></button>
     `;
     document.getElementById('stop-btn')!.onclick = handleCancel;
     initIcons();
