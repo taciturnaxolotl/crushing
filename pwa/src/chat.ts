@@ -1,6 +1,7 @@
 import { state, escapeHTML, renderPart, deferHighlightAll } from './state';
 import { handleDisconnect } from './connect';
 import type { Message } from './types';
+import { updateSidebarYolo } from './palette';
 
 declare const lucide: { createIcons: () => void } | undefined;
 export function initIcons() { try { lucide?.createIcons(); } catch {} }
@@ -28,7 +29,11 @@ export function renderChat(): void {
         </div>
         <div class="sidebar-section">
           <div class="sidebar-label">Model</div>
-          <div class="sidebar-value" id="sidebar-model">—</div>
+          <div class="sidebar-value" id="sidebar-model">${state.modelInfo ? `${escapeHTML(state.modelInfo.name)} (${escapeHTML(state.modelInfo.provider)})` : '—'}</div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-label">Mode</div>
+          <div class="sidebar-value ${state.permissionMode !== 'normal' ? `yolo-active ${state.permissionMode}` : ''}" id="sidebar-yolo">${state.permissionMode === 'normal' ? 'Normal' : state.permissionMode === 'yolo' ? 'YOLO' : 'Super YOLO'}</div>
         </div>
         <div class="sidebar-section">
           <div class="sidebar-label">Tokens</div>
@@ -55,15 +60,6 @@ export function renderChat(): void {
 
   document.getElementById('new-session-btn')!.onclick = handleNewSession;
   document.getElementById('disconnect-btn')!.onclick = () => handleDisconnect();
-
-  // Populate model info from first message if available
-  if (state.messages.length > 0) {
-    const m = state.messages.find(msg => msg.model);
-    if (m) {
-      const el = document.getElementById('sidebar-model');
-      if (el) el.textContent = m.model;
-    }
-  }
 
   renderMessages();
   renderPermission();
@@ -190,16 +186,22 @@ export function renderInputBar(): void {
   const bar = document.getElementById('input-bar');
   if (!bar) return;
 
+  const yoloBadge = state.permissionMode !== 'normal'
+    ? `<div class="yolo-badge ${state.permissionMode}">${state.permissionMode === 'yolo' ? '!' : '#'}</div>`
+    : '';
+
   if (state.agentBusy) {
     bar.innerHTML = `
-      <textarea id="msg-input" rows="1" placeholder="Agent is working..." disabled></textarea>
+      ${yoloBadge}
+      <textarea id="msg-input" rows="1" placeholder="${state.permissionMode !== 'normal' ? 'Yolo mode!' : 'Agent is working...'}" disabled></textarea>
       <button class="stop-btn" id="stop-btn"><i data-lucide="circle-stop"></i></button>
     `;
     document.getElementById('stop-btn')!.onclick = handleCancel;
     initIcons();
   } else {
     bar.innerHTML = `
-      <textarea id="msg-input" rows="1" placeholder="Message..."></textarea>
+      ${yoloBadge}
+      <textarea id="msg-input" rows="1" placeholder="${state.permissionMode !== 'normal' ? 'Yolo mode!' : 'Message...'}"></textarea>
       <button id="send-btn" disabled><i data-lucide="arrow-up"></i></button>
     `;
     initIcons();

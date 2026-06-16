@@ -52,4 +52,28 @@ export class APIClient {
   grantPermission(wsID: string, grant: { permission: PermissionRequest; action: string }): Promise<void> {
     return this.request('POST', `workspaces/${wsID}/permissions/grant`, grant);
   }
+
+  getAgentInfo(wsID: string): Promise<AgentInfo> {
+    return this.request('GET', `workspaces/${wsID}/agent`);
+  }
+
+  setPermissionMode(wsID: string, mode: 'normal' | 'yolo' | 'super_yolo'): Promise<void> {
+    return this.request('POST', `workspaces/${wsID}/permissions/mode`, { mode });
+  }
+}
+
+export interface AgentInfo {
+  is_busy: boolean;
+  is_ready: boolean;
+  model: {
+    id: string;
+    name: string;
+    can_reason: boolean;
+    context_window: number;
+  };
+  model_cfg: {
+    model: string;
+    provider: string;
+    reasoning_effort: string;
+  };
 }

@@ -17,6 +17,8 @@ export interface AppState {
   pendingPermission: PermissionRequest | null;
   agentBusy: boolean;
   messageCache: Map<string, Message[]>;
+  permissionMode: 'normal' | 'yolo' | 'super_yolo';
+  modelInfo: { name: string; provider: string } | null;
 }
 
 export const state: AppState = {
@@ -34,6 +36,8 @@ export const state: AppState = {
   pendingPermission: null,
   agentBusy: false,
   messageCache: new Map(),
+  permissionMode: 'normal',
+  modelInfo: null,
 };
 
 import { createHighlighter, type Highlighter } from 'shiki';

@@ -3,6 +3,7 @@ import { APIClient } from './api';
 import { SSEClient } from './sse';
 import type { Message, Session, PermissionRequest } from './types';
 import { renderChat, renderMessages as _renderMessages, renderPermission as _renderPermission, renderInputBar as _renderInputBar, initIcons, appendMessage, updateMessage } from './chat';
+import { initCommandPalette } from './palette';
 
 const app = () => document.querySelector('#app')!;
 
@@ -93,6 +94,14 @@ async function handleConnect(): Promise<void> {
     state.isConnecting = false;
     console.log(`[perf] connect → first render: ${(performance.now() - t0).toFixed(0)}ms`);
     renderChat();
+    initCommandPalette();
+
+    // Fetch agent info for model display
+    api.getAgentInfo(ws.id).then((info) => {
+      state.modelInfo = { name: info.model.name, provider: info.model_cfg.provider };
+      const el = document.getElementById('sidebar-model');
+      if (el) el.textContent = `${info.model.name} (${info.model_cfg.provider})`;
+    }).catch(() => {});
 
     // Load messages async after first render
     if (state.activeSessionID) {
@@ -214,6 +223,8 @@ export async function handleDisconnect(): Promise<void> {
   state.activeSessionID = null;
   state.pendingPermission = null;
   state.messageCache.clear();
+  state.modelInfo = null;
+  state.permissionMode = 'normal';
   state.isConnected = false;
   renderConnect();
 }
