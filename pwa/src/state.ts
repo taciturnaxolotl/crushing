@@ -16,6 +16,7 @@ export interface AppState {
   messages: Message[];
   pendingPermission: PermissionRequest | null;
   agentBusy: boolean;
+  messageCache: Map<string, Message[]>;
 }
 
 export const state: AppState = {
@@ -32,45 +33,90 @@ export const state: AppState = {
   messages: [],
   pendingPermission: null,
   agentBusy: false,
+  messageCache: new Map(),
 };
 
-import hljs from 'highlight.js/lib/core';
-// Register common languages
-import typescript from 'highlight.js/lib/languages/typescript';
-import javascript from 'highlight.js/lib/languages/javascript';
-import python from 'highlight.js/lib/languages/python';
-import go from 'highlight.js/lib/languages/go';
-import rust from 'highlight.js/lib/languages/rust';
-import css from 'highlight.js/lib/languages/css';
-import json from 'highlight.js/lib/languages/json';
-import bash from 'highlight.js/lib/languages/bash';
-import xml from 'highlight.js/lib/languages/xml';
-import yaml from 'highlight.js/lib/languages/yaml';
-import sql from 'highlight.js/lib/languages/sql';
-import markdown from 'highlight.js/lib/languages/markdown';
-import swift from 'highlight.js/lib/languages/swift';
+import { createHighlighter, type Highlighter } from 'shiki';
 
-hljs.registerLanguage('typescript', typescript);
-hljs.registerLanguage('javascript', javascript);
-hljs.registerLanguage('python', python);
-hljs.registerLanguage('go', go);
-hljs.registerLanguage('rust', rust);
-hljs.registerLanguage('css', css);
-hljs.registerLanguage('json', json);
-hljs.registerLanguage('bash', bash);
-hljs.registerLanguage('xml', xml);
-hljs.registerLanguage('html', xml);
-hljs.registerLanguage('yaml', yaml);
-hljs.registerLanguage('sql', sql);
-hljs.registerLanguage('markdown', markdown);
-hljs.registerLanguage('swift', swift);
+let highlighter: Highlighter | null = null;
+let highlighterReady: Promise<Highlighter> | null = null;
 
-function highlightCode(code: string, lang?: string): string {
-  if (lang && hljs.getLanguage(lang)) {
-    try { return hljs.highlight(code, { language: lang }).value; } catch {}
+const LANGS = ['typescript', 'javascript', 'python', 'go', 'rust', 'css', 'json', 'bash', 'html', 'yaml', 'sql', 'markdown', 'swift'] as const;
+
+function getHighlighter(): Promise<Highlighter> {
+  if (highlighter) return Promise.resolve(highlighter);
+  if (!highlighterReady) {
+    highlighterReady = createHighlighter({
+      themes: ['vitesse-dark'],
+      langs: [...LANGS],
+    }).then((h) => { highlighter = h; return h; });
   }
-  try { return hljs.highlightAuto(code).value; } catch {}
+  return highlighterReady;
+}
+
+// Synchronous fallback — returns escaped HTML without highlighting
+function highlightCodeSync(code: string): string {
   return escapeHTML(code);
+}
+
+// Async highlighting — use for deferred rendering
+export async function highlightCodeAsync(code: string, lang?: string): Promise<string> {
+  try {
+    const h = await getHighlighter();
+    const l = lang && h.getLoadedLanguages().includes(lang) ? lang : undefined;
+    return h.codeToHtml(code, { lang: l || 'text', theme: 'vitesse-dark' });
+  } catch {
+    return `<pre><code>${escapeHTML(code)}</code></pre>`;
+  }
+}
+
+// Queue for deferred highlighting of code blocks
+const pendingHighlights: Array<{ el: HTMLElement; code: string; lang?: string }> = [];
+let highlightBatchScheduled = false;
+
+export function queueHighlight(el: HTMLElement, code: string, lang?: string): void {
+  pendingHighlights.push({ el, code, lang });
+  if (!highlightBatchScheduled) {
+    highlightBatchScheduled = true;
+    requestIdleCallback(processHighlightBatch, { timeout: 100 });
+  }
+}
+
+// Scan DOM for un-highlighted code blocks and queue them
+export function deferHighlightAll(): void {
+  const els = document.querySelectorAll<HTMLElement>('pre[data-code]');
+  els.forEach((el) => {
+    if (el.dataset.highlighted === 'true') return;
+    const code = decodeURIComponent(el.dataset.code || '');
+    const lang = el.dataset.highlight || undefined;
+    el.dataset.highlighted = 'true';
+    queueHighlight(el, code, lang);
+  });
+}
+
+function processHighlightBatch(deadline?: IdleDeadline): void {
+  const batchSize = 5;
+  let processed = 0;
+  while (pendingHighlights.length > 0 && processed < batchSize && (!deadline || deadline.timeRemaining() > 2)) {
+    const item = pendingHighlights.shift()!;
+    getHighlighter().then((h) => {
+      const l = item.lang && h.getLoadedLanguages().includes(item.lang) ? item.lang : undefined;
+      try {
+        const html = h.codeToHtml(item.code, { lang: l || 'text', theme: 'vitesse-dark' });
+        // Extract inner content from shiki's <pre><code> wrapper
+        const match = html.match(/<code[^>]*>([\s\S]*)<\/code>/);
+        if (match && item.el.isConnected) {
+          item.el.innerHTML = `<code>${match[1]}</code>`;
+        }
+      } catch {}
+    });
+    processed++;
+  }
+  if (pendingHighlights.length > 0) {
+    requestIdleCallback(processHighlightBatch, { timeout: 100 });
+  } else {
+    highlightBatchScheduled = false;
+  }
 }
 
 function guessLang(filePath: string): string | undefined {
@@ -235,7 +281,8 @@ function renderToolResultBody(name: string, content: string, metadata: string | 
     case 'bash': {
       const output = (meta?.output as string) || content;
       if (!output || output === 'no output') return '<div class="tool-output-empty">no output</div>';
-      return `<pre class="tool-output"><code>${highlightCode(output.slice(0, 3000), 'bash')}</code></pre>`;
+      const code = output.slice(0, 3000);
+      return `<pre class="tool-output" data-highlight="bash" data-code="${encodeURIComponent(code)}"><code>${escapeHTML(code)}</code></pre>`;
     }
     case 'edit':
     case 'multiedit': {
@@ -246,20 +293,24 @@ function renderToolResultBody(name: string, content: string, metadata: string | 
       if (oldContent && newContent) {
         return `<div class="tool-diff">${renderColoredDiff(oldContent, newContent, lang)}</div>`;
       }
-      if (content) return `<pre class="tool-output"><code>${highlightCode(content.slice(0, 1500), lang)}</code></pre>`;
+      if (content) {
+        const code = content.slice(0, 1500);
+        return `<pre class="tool-output" data-highlight="${lang || ''}" data-code="${encodeURIComponent(code)}"><code>${escapeHTML(code)}</code></pre>`;
+      }
       return '';
     }
     case 'write': {
-      // Try to get file path from the matching tool_call to guess language
       if (content && content !== 'File successfully written.') {
-        return `<pre class="tool-output"><code>${highlightCode(content.slice(0, 2000))}</code></pre>`;
+        const code = content.slice(0, 2000);
+        return `<pre class="tool-output" data-highlight="" data-code="${encodeURIComponent(code)}"><code>${escapeHTML(code)}</code></pre>`;
       }
       return '';
     }
     case 'view': {
       const viewContent = (meta?.content as string) || content;
       if (viewContent) {
-        return `<pre class="tool-output"><code>${highlightCode(viewContent.slice(0, 3000))}</code></pre>`;
+        const code = viewContent.slice(0, 3000);
+        return `<pre class="tool-output" data-highlight="" data-code="${encodeURIComponent(code)}"><code>${escapeHTML(code)}</code></pre>`;
       }
       return '';
     }
@@ -281,7 +332,7 @@ function renderToolResultBody(name: string, content: string, metadata: string | 
       if (!content) return '';
       const maxLen = 2000;
       const truncated = content.length > maxLen ? content.slice(0, maxLen) + '\n…' : content;
-      return `<pre class="tool-output"><code>${highlightCode(truncated)}</code></pre>`;
+      return `<pre class="tool-output" data-highlight="" data-code="${encodeURIComponent(truncated)}"><code>${escapeHTML(truncated)}</code></pre>`;
     }
   }
 }
@@ -290,80 +341,70 @@ function renderColoredDiff(oldStr: string, newStr: string, lang?: string): strin
   const oldLines = oldStr.split('\n');
   const newLines = newStr.split('\n');
 
-  const hlOld = oldLines.map(l => highlightCode(l, lang));
-  const hlNew = newLines.map(l => highlightCode(l, lang));
-
+  // Render plain text diff first — highlighting deferred via data attrs
   const lcs = computeLCS(oldLines, newLines);
-  const raw: Array<{ type: 'ctx' | 'add' | 'del'; html: string }> = [];
+  const result: string[] = [];
   let oi = 0, ni = 0, li = 0;
 
   while (oi < oldLines.length || ni < newLines.length) {
     if (li < lcs.length && oi < oldLines.length && oldLines[oi] === lcs[li] && ni < newLines.length && newLines[ni] === lcs[li]) {
-      raw.push({ type: 'ctx', html: `<span class="diff-ctx">  ${hlOld[oi]}</span>` });
+      result.push(`<span class="diff-ctx">  ${escapeHTML(lcs[li])}</span>`);
       oi++; ni++; li++;
     } else if (li < lcs.length && ni < newLines.length && newLines[ni] === lcs[li]) {
-      raw.push({ type: 'del', html: `<span class="diff-del">- ${hlOld[oi]}</span>` });
+      result.push(`<span class="diff-del">- ${escapeHTML(oldLines[oi])}</span>`);
       oi++;
     } else if (li < lcs.length && oi < oldLines.length && oldLines[oi] === lcs[li]) {
-      raw.push({ type: 'add', html: `<span class="diff-add">+ ${hlNew[ni]}</span>` });
+      result.push(`<span class="diff-add">+ ${escapeHTML(newLines[ni])}</span>`);
       ni++;
     } else {
       if (oi < oldLines.length && (ni >= newLines.length || li >= lcs.length)) {
-        raw.push({ type: 'del', html: `<span class="diff-del">- ${hlOld[oi]}</span>` });
+        result.push(`<span class="diff-del">- ${escapeHTML(oldLines[oi])}</span>`);
         oi++;
       } else if (ni < newLines.length) {
-        raw.push({ type: 'add', html: `<span class="diff-add">+ ${hlNew[ni]}</span>` });
+        result.push(`<span class="diff-add">+ ${escapeHTML(newLines[ni])}</span>`);
         ni++;
       }
     }
   }
 
-  // Collapse consecutive context lines, keeping 3 lines of context around changes
+  // Collapse context
   const CONTEXT = 3;
-  const result: string[] = [];
+  const raw = result.map(html => {
+    if (html.includes('diff-ctx')) return { type: 'ctx' as const, html };
+    if (html.includes('diff-add')) return { type: 'add' as const, html };
+    return { type: 'del' as const, html };
+  });
+
+  const collapsed: string[] = [];
   let i = 0;
   while (i < raw.length) {
     if (raw[i].type === 'ctx') {
-      // Find the extent of this context run
       let end = i;
       while (end < raw.length && raw[end].type === 'ctx') end++;
       const ctxLen = end - i;
-
-      // Is there a change after this context block?
       const hasChangeAfter = end < raw.length;
-      // Was there a change before this context block?
       const hasChangeBefore = i > 0;
 
       if (!hasChangeAfter && !hasChangeBefore) {
-        // Entire diff is context — show all
-        for (let j = i; j < end; j++) result.push(raw[j].html);
+        for (let j = i; j < end; j++) collapsed.push(raw[j].html);
       } else if (ctxLen <= CONTEXT * 2 + 1) {
-        // Small enough to show entirely
-        for (let j = i; j < end; j++) result.push(raw[j].html);
+        for (let j = i; j < end; j++) collapsed.push(raw[j].html);
       } else {
-        // Show head + fold + tail
         const headEnd = hasChangeBefore ? i + CONTEXT : i;
         const tailStart = hasChangeAfter ? end - CONTEXT : end;
-
-        if (hasChangeBefore) {
-          for (let j = i; j < headEnd; j++) result.push(raw[j].html);
-        }
+        if (hasChangeBefore) for (let j = i; j < headEnd; j++) collapsed.push(raw[j].html);
         const hidden = tailStart - headEnd;
-        if (hidden > 0) {
-          result.push(`<span class="diff-fold">${hidden} unchanged lines</span>`);
-        }
-        if (hasChangeAfter) {
-          for (let j = tailStart; j < end; j++) result.push(raw[j].html);
-        }
+        if (hidden > 0) collapsed.push(`<span class="diff-fold">${hidden} unchanged lines</span>`);
+        if (hasChangeAfter) for (let j = tailStart; j < end; j++) collapsed.push(raw[j].html);
       }
       i = end;
     } else {
-      result.push(raw[i].html);
+      collapsed.push(raw[i].html);
       i++;
     }
   }
 
-  return `<pre class="tool-output diff"><code>${result.join('\n')}</code></pre>`;
+  return `<pre class="tool-output diff"><code>${collapsed.join('\n')}</code></pre>`;
 }
 
 function computeLCS(a: string[], b: string[]): string[] {

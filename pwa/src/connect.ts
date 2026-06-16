@@ -1,8 +1,8 @@
-import { state, escapeHTML } from './state';
+import { state, escapeHTML, renderPart } from './state';
 import { APIClient } from './api';
 import { SSEClient } from './sse';
 import type { Message, Session, PermissionRequest } from './types';
-import { renderChat, renderMessages as _renderMessages, renderPermission as _renderPermission, renderInputBar as _renderInputBar } from './chat';
+import { renderChat, renderMessages as _renderMessages, renderPermission as _renderPermission, renderInputBar as _renderInputBar, initIcons, appendMessage, updateMessage } from './chat';
 
 const app = () => document.querySelector('#app')!;
 
@@ -35,6 +35,7 @@ export function renderConnect(): void {
 }
 
 async function handleConnect(): Promise<void> {
+  const t0 = performance.now();
   const urlEl = document.getElementById('server-url') as HTMLInputElement;
   const pathEl = document.getElementById('workspace-path') as HTMLInputElement;
   const url = urlEl.value.trim();
@@ -48,12 +49,13 @@ async function handleConnect(): Promise<void> {
   renderConnect();
 
   const baseURL = url.includes('://') ? url : `http://${url}`;
-  // In dev mode with vite proxy, use relative /v1 paths to avoid CORS
   const isDev = import.meta.env.DEV;
   const api = new APIClient(isDev ? '' : baseURL);
 
   try {
+    const t1 = performance.now();
     const ok = await api.healthCheck();
+    console.log(`[perf] healthCheck: ${(performance.now() - t1).toFixed(0)}ms`);
     if (!ok) throw new Error('Health check failed');
   } catch (e) {
     state.error = `Cannot reach server: ${(e as Error).message}`;
@@ -65,7 +67,9 @@ async function handleConnect(): Promise<void> {
   state.api = api;
 
   try {
+    const t2 = performance.now();
     const ws = await api.createWorkspace(wsPath || '.');
+    console.log(`[perf] createWorkspace: ${(performance.now() - t2).toFixed(0)}ms`);
     state.workspace = ws;
 
     localStorage.setItem('serverURL', url);
@@ -76,17 +80,27 @@ async function handleConnect(): Promise<void> {
     sse.connect();
     state.sse = sse;
 
+    const t3 = performance.now();
     const sessions = await api.listSessions(ws.id);
+    console.log(`[perf] listSessions: ${(performance.now() - t3).toFixed(0)}ms (${sessions.length} sessions)`);
     state.sessions = sessions.sort((a, b) => b.updated_at - a.updated_at);
 
     if (sessions.length > 0) {
       state.activeSessionID = sessions[0].id;
-      await loadMessages(sessions[0].id);
     }
 
     state.isConnected = true;
     state.isConnecting = false;
+    console.log(`[perf] connect → first render: ${(performance.now() - t0).toFixed(0)}ms`);
     renderChat();
+
+    // Load messages async after first render
+    if (state.activeSessionID) {
+      const t4 = performance.now();
+      await loadMessages(state.activeSessionID);
+      console.log(`[perf] loadMessages: ${(performance.now() - t4).toFixed(0)}ms (${state.messages.length} msgs)`);
+      console.log(`[perf] total connect → messages rendered: ${(performance.now() - t0).toFixed(0)}ms`);
+    }
   } catch (e) {
     state.error = `Setup failed: ${(e as Error).message}`;
     state.isConnecting = false;
@@ -98,19 +112,34 @@ function setupSSE(sse: SSEClient): void {
   sse.on('message', (event: unknown) => {
     const e = event as { type: string; payload: Message };
     const msg = e.payload;
-    console.log('[SSE message]', e.type, msg);
-    if (e.type === 'created') state.messages.push(msg);
-    else if (e.type === 'updated') {
-      const idx = state.messages.findIndex((m) => m.id === msg.id);
-      if (idx >= 0) state.messages[idx] = msg;
+    const sid = msg.session_id;
+
+    // Update cache
+    let cached = state.messageCache.get(sid);
+    if (!cached) { cached = []; state.messageCache.set(sid, cached); }
+
+    if (e.type === 'created') {
+      cached.push(msg);
+    } else if (e.type === 'updated') {
+      const idx = cached.findIndex((m) => m.id === msg.id);
+      if (idx >= 0) cached[idx] = msg; else cached.push(msg);
     } else if (e.type === 'deleted') {
-      state.messages = state.messages.filter((m) => m.id !== msg.id);
+      cached = cached.filter((m) => m.id !== msg.id);
+      state.messageCache.set(sid, cached);
     }
-    // Re-render messages in place
-    const container = document.getElementById('messages');
-    if (container) {
-      _renderMessages();
-      container.scrollTop = container.scrollHeight;
+
+    // Only touch DOM if this is the active session
+    if (sid === state.activeSessionID) {
+      state.messages = cached;
+      if (e.type === 'created') {
+        appendMessage(msg);
+        const container = document.getElementById('messages');
+        if (container) container.scrollTop = container.scrollHeight;
+      } else if (e.type === 'updated') {
+        updateMessage(msg);
+      } else {
+        _renderMessages();
+      }
     }
   });
 
@@ -145,12 +174,32 @@ function setupSSE(sse: SSEClient): void {
 
 async function loadMessages(sessionID: string): Promise<void> {
   if (!state.api || !state.workspace) return;
+
+  // Check cache first
+  const cached = state.messageCache.get(sessionID);
+  if (cached) {
+    state.messages = cached;
+    const t0 = performance.now();
+    _renderMessages();
+    console.log(`[perf] renderMessages (cached ${cached.length}): ${(performance.now() - t0).toFixed(0)}ms`);
+    const container = document.getElementById('messages');
+    if (container) container.scrollTop = container.scrollHeight;
+    return;
+  }
+
   try {
-    state.messages = await state.api.getSessionMessages(state.workspace.id, sessionID);
-    console.log('[loadMessages]', state.messages.length, 'messages');
-    if (state.messages.length > 0) {
-      const sample = state.messages[state.messages.length - 1];
-      console.log('[sample message]', JSON.stringify(sample.parts?.slice(0, 3), null, 2));
+    const t1 = performance.now();
+    const msgs = await state.api.getSessionMessages(state.workspace.id, sessionID);
+    console.log(`[perf] fetch messages: ${(performance.now() - t1).toFixed(0)}ms (${msgs.length} msgs)`);
+
+    state.messageCache.set(sessionID, msgs);
+    if (state.activeSessionID === sessionID) {
+      state.messages = msgs;
+      const t2 = performance.now();
+      _renderMessages();
+      console.log(`[perf] renderMessages: ${(performance.now() - t2).toFixed(0)}ms`);
+      const container = document.getElementById('messages');
+      if (container) container.scrollTop = container.scrollHeight;
     }
   } catch (e) { console.error('[loadMessages] failed', e); }
 }
@@ -164,6 +213,7 @@ export async function handleDisconnect(): Promise<void> {
   state.messages = [];
   state.activeSessionID = null;
   state.pendingPermission = null;
+  state.messageCache.clear();
   state.isConnected = false;
   renderConnect();
 }

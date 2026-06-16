@@ -1,8 +1,9 @@
-import { state, escapeHTML, renderPart } from './state';
+import { state, escapeHTML, renderPart, deferHighlightAll } from './state';
 import { handleDisconnect } from './connect';
+import type { Message } from './types';
 
 declare const lucide: { createIcons: () => void } | undefined;
-function initIcons() { try { lucide?.createIcons(); } catch {} }
+export function initIcons() { try { lucide?.createIcons(); } catch {} }
 
 const app = () => document.querySelector('#app')!;
 
@@ -71,15 +72,94 @@ export function renderChat(): void {
   initIcons();
 }
 
+let renderedUpTo = 0; // index from bottom: how many messages are rendered
+const INITIAL_COUNT = 50;
+const BATCH_SIZE = 50;
+
 export function renderMessages(): void {
   const container = document.getElementById('messages');
   if (!container) return;
 
-  container.innerHTML = state.messages.map((msg) => {
-    const parts = (msg.parts || []).map((p) => renderPart(p)).join('');
-    return `<div class="msg ${msg.role}"><div class="role">${msg.role}</div>${parts}</div>`;
-  }).join('');
+  const msgs = state.messages;
+  renderedUpTo = Math.min(INITIAL_COUNT, msgs.length);
+  const startIdx = msgs.length - renderedUpTo;
+
+  container.innerHTML = '';
+
+  const fragment = document.createDocumentFragment();
+  for (let i = startIdx; i < msgs.length; i++) {
+    fragment.appendChild(createMessageEl(msgs[i]));
+  }
+  container.appendChild(fragment);
+
   initIcons();
+  deferHighlightAll();
+
+  // Preload remaining messages in background batches
+  if (startIdx > 0) {
+    schedulePreload(container, startIdx);
+  }
+}
+
+function schedulePreload(container: HTMLElement, nextStartIdx: number): void {
+  requestIdleCallback(() => {
+    if (!container.isConnected || nextStartIdx <= 0) return;
+
+    const endIdx = nextStartIdx;
+    const startIdx = Math.max(0, endIdx - BATCH_SIZE);
+    const batch = state.messages.slice(startIdx, endIdx);
+
+    const prevScrollHeight = container.scrollHeight;
+    const prevScrollTop = container.scrollTop;
+
+    const fragment = document.createDocumentFragment();
+    for (const msg of batch) {
+      fragment.appendChild(createMessageEl(msg));
+    }
+    container.prepend(fragment);
+    renderedUpTo += batch.length;
+
+    // Preserve scroll position
+    const newScrollHeight = container.scrollHeight;
+    container.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+
+    initIcons();
+    deferHighlightAll();
+
+    if (startIdx > 0) {
+      schedulePreload(container, startIdx);
+    }
+  }, { timeout: 200 });
+}
+
+function createMessageEl(msg: Message): HTMLElement {
+  const div = document.createElement('div');
+  div.className = `msg ${msg.role}`;
+  div.dataset.msgId = msg.id;
+  const parts = (msg.parts || []).map((p) => renderPart(p)).join('');
+  div.innerHTML = `<div class="role">${msg.role}</div>${parts}`;
+  return div;
+}
+
+export function appendMessage(msg: Message): void {
+  const container = document.getElementById('messages');
+  if (!container) return;
+  container.appendChild(createMessageEl(msg));
+  renderedUpTo++;
+  initIcons();
+  deferHighlightAll();
+}
+
+export function updateMessage(msg: Message): void {
+  const container = document.getElementById('messages');
+  if (!container) return;
+  const existing = container.querySelector(`[data-msg-id="${msg.id}"]`);
+  if (existing) {
+    const parts = (msg.parts || []).map((p) => renderPart(p)).join('');
+    existing.innerHTML = `<div class="role">${msg.role}</div>${parts}`;
+    initIcons();
+    deferHighlightAll();
+  }
 }
 
 export function renderPermission(): void {
