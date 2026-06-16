@@ -2,7 +2,7 @@ import { state, escapeHTML, renderPart } from './state';
 import { APIClient } from './api';
 import { SSEClient } from './sse';
 import type { Message, Session, PermissionRequest } from './types';
-import { renderChat, renderMessages as _renderMessages, renderPermission as _renderPermission, renderInputBar as _renderInputBar, initIcons, appendMessage, updateMessage } from './chat';
+import { renderChat, renderMessages as _renderMessages, renderPermission as _renderPermission, renderInputBar as _renderInputBar, initIcons, appendMessage, updateMessage, hideStreamingIndicator } from './chat';
 import { initCommandPalette } from './palette';
 
 const app = () => document.querySelector('#app')!;
@@ -172,6 +172,7 @@ function setupSSE(sse: SSEClient): void {
 
   sse.on('runComplete', () => {
     state.agentBusy = false;
+    hideStreamingIndicator();
     _renderInputBar();
   });
 

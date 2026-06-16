@@ -193,11 +193,12 @@ export function renderInputBar(): void {
   if (state.agentBusy) {
     bar.innerHTML = `
       ${yoloBadge}
-      <textarea id="msg-input" rows="1" placeholder="${state.permissionMode !== 'normal' ? 'Yolo mode!' : 'Agent is working...'}" disabled></textarea>
+      <textarea id="msg-input" rows="1" placeholder="${state.permissionMode !== 'normal' ? 'Yolo mode!' : ''}" disabled></textarea>
       <button class="stop-btn" id="stop-btn"><i data-lucide="circle-stop"></i></button>
     `;
     document.getElementById('stop-btn')!.onclick = handleCancel;
     initIcons();
+    showStreamingIndicator();
   } else {
     bar.innerHTML = `
       ${yoloBadge}
@@ -219,6 +220,42 @@ export function renderInputBar(): void {
     sendBtn.onclick = () => handleSend();
     input.focus();
   }
+}
+
+function showStreamingIndicator(): void {
+  const container = document.getElementById('messages');
+  if (!container) return;
+  container.querySelector('.streaming-indicator')?.remove();
+
+  // Always append at the end of messages, after everything
+  const div = document.createElement('div');
+  div.className = 'streaming-indicator';
+  div.innerHTML = '<span class="text-jitter"></span>';
+  container.appendChild(div);
+  startJitter(div.querySelector('.text-jitter')!);
+  container.scrollTop = container.scrollHeight;
+}
+
+const JITTER_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*<>{}[]';
+let jitterInterval: ReturnType<typeof setInterval> | null = null;
+
+function startJitter(el: HTMLElement): void {
+  stopJitter();
+  const len = 12;
+  jitterInterval = setInterval(() => {
+    el.textContent = Array.from({ length: len }, () =>
+      JITTER_CHARS[Math.floor(Math.random() * JITTER_CHARS.length)]
+    ).join('');
+  }, 50);
+}
+
+function stopJitter(): void {
+  if (jitterInterval) { clearInterval(jitterInterval); jitterInterval = null; }
+}
+
+export function hideStreamingIndicator(): void {
+  stopJitter();
+  document.querySelector('.streaming-indicator')?.remove();
 }
 
 function scrollToBottom(): void {

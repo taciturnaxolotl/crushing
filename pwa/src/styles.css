@@ -246,6 +246,15 @@ html, body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* Agent streaming indicator */
+.streaming-indicator {
+  padding: 0.2rem 0; align-self: flex-start;
+}
+.text-jitter {
+  font-family: var(--mono); font-size: 0.8rem; color: var(--secondary);
+  letter-spacing: 0.03em;
+}
+
 /* Icons */
 [data-lucide] { width: 13px; height: 13px; vertical-align: -2px; stroke-width: 2; }
 .tool-call-header [data-lucide] { color: var(--accent); }
