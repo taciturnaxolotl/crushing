@@ -59,7 +59,7 @@ export function renderPart(part: ContentPart): string {
     case 'reasoning': {
       const thinking = (data.thinking as string) || '';
       if (!thinking) return '';
-      return `<details class="thinking-block"><summary>Thinking</summary><div>${renderMarkdown(thinking)}</div></details>`;
+      return `<details class="thinking-block"><summary><i data-lucide="brain"></i> Thinking</summary><div>${renderMarkdown(thinking)}</div></details>`;
     }
 
     case 'tool_call': {
@@ -76,7 +76,7 @@ export function renderPart(part: ContentPart): string {
         }
       }
       return `<div class="tool-call">
-        <div class="tool-call-header"><span class="name">🔧 ${escapeHTML(name)}</span>${finished ? '' : ' <span class="spinner"></span>'}</div>
+        <div class="tool-call-header"><i data-lucide="terminal"></i> <span class="name">${escapeHTML(name)}</span>${finished ? '' : ' <span class="spinner"></span>'}</div>
         ${inputPreview ? `<pre class="tool-input">${inputPreview}</pre>` : ''}
       </div>`;
     }
@@ -86,9 +86,9 @@ export function renderPart(part: ContentPart): string {
       const content = (data.content as string) || '';
       const isError = data.is_error as boolean | undefined;
       const cls = isError ? 'err' : 'ok';
-      const icon = isError ? '✗' : '✓';
+      const icon = isError ? 'circle-x' : 'circle-check';
       return `<div class="tool-result ${cls}">
-        <div class="tool-result-header">${icon} ${escapeHTML(name)}</div>
+        <div class="tool-result-header"><i data-lucide="${icon}"></i> ${escapeHTML(name)}</div>
         ${content ? `<pre>${escapeHTML(content.slice(0, 800))}</pre>` : ''}
       </div>`;
     }

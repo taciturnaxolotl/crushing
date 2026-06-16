@@ -29,6 +29,10 @@ export function renderChat(): void {
   scrollToBottom();
 }
 
+declare const lucide: { createIcons: () => void } | undefined;
+
+function initIcons() { try { lucide?.createIcons(); } catch {} }
+
 export function renderMessages(): void {
   const container = document.getElementById('messages');
   if (!container) return;
@@ -37,6 +41,7 @@ export function renderMessages(): void {
     const parts = (msg.parts || []).map((p) => renderPart(p)).join('');
     return `<div class="msg ${msg.role}"><div class="role">${msg.role}</div>${parts}</div>`;
   }).join('');
+  initIcons();
 }
 
 export function renderPermission(): void {
@@ -70,14 +75,16 @@ export function renderInputBar(): void {
   if (state.agentBusy) {
     bar.innerHTML = `
       <textarea id="msg-input" rows="1" placeholder="Agent is working..." disabled></textarea>
-      <button class="stop-btn" id="stop-btn">■</button>
+      <button class="stop-btn" id="stop-btn"><i data-lucide="square"></i></button>
     `;
     document.getElementById('stop-btn')!.onclick = handleCancel;
+    initIcons();
   } else {
     bar.innerHTML = `
       <textarea id="msg-input" rows="1" placeholder="Message..."></textarea>
-      <button id="send-btn" disabled>↑</button>
+      <button id="send-btn" disabled><i data-lucide="arrow-up"></i></button>
     `;
+    initIcons();
     const input = document.getElementById('msg-input') as HTMLTextAreaElement;
     const sendBtn = document.getElementById('send-btn') as HTMLButtonElement;
 

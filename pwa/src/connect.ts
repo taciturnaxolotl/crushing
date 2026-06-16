@@ -9,19 +9,24 @@ const app = () => document.querySelector('#app')!;
 export function renderConnect(): void {
   app().innerHTML = `
     <div class="connect-screen">
-      <h1><span>♥</span> Crush</h1>
-      <div class="field">
-        <label>Server</label>
-        <input id="server-url" type="url" placeholder="host:port" value="${escapeHTML(state.serverURL)}" inputmode="url" autocomplete="off">
+      <div class="logo-area">
+        <img src="/icon-192.png" alt="Crush" class="logo-img">
+        <div class="logo-meta"><span class="charm">Charm™</span> crush</div>
       </div>
-      <div class="field">
-        <label>Workspace Path</label>
-        <input id="workspace-path" type="text" placeholder="/path/to/project" value="${escapeHTML(state.workspacePath)}" autocomplete="off">
+      <div class="connect-form">
+        <div class="field">
+          <label>Server</label>
+          <input id="server-url" type="url" placeholder="host:port" value="${escapeHTML(state.serverURL)}" inputmode="url" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label>Workspace</label>
+          <input id="workspace-path" type="text" placeholder="/path/to/project" value="${escapeHTML(state.workspacePath)}" autocomplete="off" spellcheck="false">
+        </div>
+        ${state.error ? `<div class="error-msg">${escapeHTML(state.error)}</div>` : ''}
+        <button id="connect-btn" class="btn btn-primary" ${state.isConnecting ? 'disabled' : ''}>
+          ${state.isConnecting ? '<span class="spinner"></span>' : 'Connect'}
+        </button>
       </div>
-      ${state.error ? `<div class="error-msg">${escapeHTML(state.error)}</div>` : ''}
-      <button id="connect-btn" class="btn btn-primary" ${state.isConnecting ? 'disabled' : ''}>
-        ${state.isConnecting ? '<span class="spinner"></span>' : 'Connect'}
-      </button>
     </div>
   `;
 
