@@ -1,0 +1,31 @@
+name: crushing
+options:
+  bundleIdPrefix: sh.dunkirk
+  deploymentTarget:
+    iOS: "26.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+
+targets:
+  crushing:
+    type: application
+    platform: iOS
+    sources:
+      - path: crushing
+        excludes:
+          - "**/*.xcuserstate"
+    settings:
+      base:
+        DEVELOPMENT_TEAM: M67B42LX8D
+        CODE_SIGN_STYLE: Automatic
+        INFOPLIST_GENERATION_MODE: GeneratedFile
+        PRODUCT_BUNDLE_IDENTIFIER: sh.dunkirk.crushing
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: true
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_FILE: crushing/Info.plist
